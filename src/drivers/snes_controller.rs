@@ -2,6 +2,7 @@ use crate::cashew_gb::{
     JOYPAD_A, JOYPAD_B, JOYPAD_DOWN, JOYPAD_LEFT, JOYPAD_RIGHT, JOYPAD_SELECT, JOYPAD_START,
     JOYPAD_UP,
 };
+use std::{thread, time::Duration};
 
 use svc::hal::{
     delay::Ets,

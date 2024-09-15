@@ -1,9 +1,9 @@
 use embedded_graphics::{
-    pixelcolor::{raw::RawU16, Rgb565},
+    pixelcolor::{raw::RawU16, Rgb555, Rgb565},
     prelude::*,
     primitives::Rectangle,
 };
-use mipidsi::options::{Orientation, Rotation};
+use mipidsi::options::{ColorInversion, ColorOrder, Orientation, Rotation};
 use svc::hal::{
     self,
     gpio::{Output, OutputPin, PinDriver},
@@ -44,7 +44,7 @@ where
             SpiDeviceDriver<'p, &'p SpiDriver<'p>>,
             PinDriver<'p, DC, Output>,
         >,
-        mipidsi::models::ILI9341Rgb565,
+        mipidsi::models::ST7735s,
         PinDriver<'p, RST, Output>,
     >,
     buffer: Vec<Rgb565>,
@@ -69,18 +69,19 @@ where
         let spi_device_driver = SpiDeviceDriver::new(
             spi_driver,
             Some(pins.cs),
-            &SpiConfig::new().baudrate(MegaHertz(26).into()),
+            &SpiConfig::new().baudrate(MegaHertz(60).into()),
         )
         .unwrap();
 
         let spi_interface = display_interface_spi::SPIInterface::new(spi_device_driver, dc);
 
-        let mut driver = mipidsi::Builder::new(mipidsi::models::ILI9341Rgb565, spi_interface)
+        let mut driver = mipidsi::Builder::new(mipidsi::models::ST7735s, spi_interface)
             .reset_pin(rst)
             .orientation(Orientation {
                 rotation: Rotation::Deg270,
                 mirrored: false,
             })
+            .color_order(ColorOrder::Rgb)
             .init(&mut hal::delay::Ets)
             .unwrap();
         driver.clear(Rgb565::BLACK).unwrap();
@@ -93,10 +94,7 @@ where
                 [0x7FFF, 0x329F, 0x001F, 0x001F], /* OBJ1 */
                 [0x7FFF, 0x7E10, 0x48E7, 0x0000], /* BG */
             ],
-            area: Rectangle::new(
-                Point::new(0, 0),
-                Size::new(LCD_WIDTH as u32, LCD_HEIGHT as u32),
-            ),
+            area: Rectangle::new(Point::new(0, 0), Size::new(LCD_WIDTH as u32, 128)),
         }
     }
 }
@@ -116,7 +114,7 @@ where
     pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8, palette: [u16; 0x40]) -> () {
         for x in 0..LCD_WIDTH as usize {
             self.buffer[x + (LCD_WIDTH as usize * line as usize)] =
-                Rgb565::from(RawU16::new(palette[pixels[x] as usize]));
+                Rgb565::from(Rgb555::from(RawU16::new(palette[pixels[x] as usize])));
         }
     }
     pub fn draw(&mut self) -> () {

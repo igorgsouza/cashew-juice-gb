@@ -15,7 +15,7 @@ mod drivers;
 const KB: usize = 1024;
 
 struct Context {
-    rom: Vec<u8>,
+    rom: Box<Vec<u8>>,
     ram: RefCell<Vec<u8>>,
     display_channel_sender: Sender<Option<([u8; 160], u8, [u16; 0x40])>>,
 }
@@ -54,7 +54,13 @@ fn main() -> () {
             unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
         );
 
-        let rom = Vec::from(include_bytes!("../rom.gbc"));
+        let rom = Box::new(Vec::from(include_bytes!("../rom.gbc")));
+
+        println!(
+            "OK - rom - HEAP: {}B, STACK: {}B",
+            unsafe { sys::esp_get_free_heap_size() },
+            unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+        );
 
         // let mut cfg = SdCardConfiguration::new();
         // cfg.speed_khz = 16 * KB as u32;
@@ -125,16 +131,22 @@ fn main() -> () {
             unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
         );
 
-        let mut controller = drivers::SNESController::new(
-            peripherals.pins.gpio16,
-            peripherals.pins.gpio7,
-            peripherals.pins.gpio6,
-        );
         let context = Context {
             rom,
             ram: RefCell::new(vec![]),
             display_channel_sender,
         };
+
+        let mut controller = drivers::SNESController::new(
+            peripherals.pins.gpio15,
+            peripherals.pins.gpio7,
+            peripherals.pins.gpio6,
+        );
+        println!(
+            "OK - controller - HEAP: {}B, STACK: {}B",
+            unsafe { sys::esp_get_free_heap_size() },
+            unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+        );
 
         let mut gb =
             match cashew_gb::Gb::new(&context, rom_read, ram_read, ram_write, Some(gb_error)) {
@@ -153,12 +165,9 @@ fn main() -> () {
         let max_frame = 60 * 60 * 10;
         for _ in 0..max_frame {
             let input = controller.read_gb();
-            println!("joypad {}", input);
-            gb.set_joypad(input);
-            println!("joypad {}", "frames");
+            gb.set_joypad(!input);
             gb.run_frame();
             gb.get_context().display_channel_sender.send(None).unwrap();
-            FreeRtos::delay_ms(16);
         }
     });
 
@@ -193,7 +202,7 @@ fn gb_error(_gb: &Gb<Context>, gb_error: GbError, addr: u16) -> () {
 fn draw_line(gb: &Gb<Context>, pixels: [u8; 160], line: u8) -> () {
     gb.get_context()
         .display_channel_sender
-        .send(Some((pixels, line, gb.get_palette_fix().clone())))
+        .send(Some((pixels, line, gb.get_palette().clone())))
         .unwrap()
 }
 

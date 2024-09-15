@@ -543,23 +543,23 @@ impl<'a, T> Gb<'a, T> {
         match addr >> 12 {
             0x0 => {
                 if self.hram_io[IO_BANK] == 0 && addr < 0x0100 {
-                    return self.gb_bootrom_read.unwrap()(&self, addr);
+                    return self.gb_bootrom_read.unwrap()(self, addr);
                 } else {
-                    return (self.gb_rom_read)(&self, addr);
+                    return (self.gb_rom_read)(self, addr);
                 }
             }
             0x1 | 0x2 | 0x3 => {
-                return (self.gb_rom_read)(&self, addr);
+                return (self.gb_rom_read)(self, addr);
             }
             0x4 | 0x5 | 0x6 | 0x7 => {
                 if self.mbc == 1 && self.cart_mode_select != 0 {
                     return (self.gb_rom_read)(
-                        &self,
+                        self,
                         addr + (((self.selected_rom_bank as usize & 0x1F) - 1) * ROM_BANK_SIZE),
                     );
                 } else {
                     return (self.gb_rom_read)(
-                        &self,
+                        self,
                         addr + ((self.selected_rom_bank as usize - 1) * (ROM_BANK_SIZE)),
                     );
                 }
@@ -575,16 +575,16 @@ impl<'a, T> Gb<'a, T> {
                     return self.rtc_latched.bytes[self.cart_ram_bank as usize - 0x08];
                 } else if self.cart_ram != 0 && self.enable_cart_ram {
                     if self.mbc == 2 {
-                        return (self.gb_cart_ram_read)(&self, addr & 0x1FF);
+                        return (self.gb_cart_ram_read)(self, addr & 0x1FF);
                     } else if (self.cart_mode_select != 0 || self.mbc != 1)
                         && self.cart_ram_bank < self.num_ram_banks
                     {
                         return (self.gb_cart_ram_read)(
-                            &self,
+                            self,
                             addr - CART_RAM_ADDR + (self.cart_ram_bank as usize * CRAM_BANK_SIZE),
                         );
                     } else {
-                        return (self.gb_cart_ram_read)(&self, addr - CART_RAM_ADDR);
+                        return (self.gb_cart_ram_read)(self, addr - CART_RAM_ADDR);
                     }
                 }
                 return 0xFF;
@@ -679,7 +679,7 @@ impl<'a, T> Gb<'a, T> {
             }
 
             _ => {
-                self.gb_error.unwrap()(&self, GbError::GbInvalidRead, addr as u16);
+                self.gb_error.unwrap()(self, GbError::GbInvalidRead, addr as u16);
                 panic!()
             }
         }
@@ -829,17 +829,17 @@ impl<'a, T> Gb<'a, T> {
                     if self.mbc == 2 {
                         let addr = addr & 0x1FF;
                         let val = val & 0x0F;
-                        (self.gb_cart_ram_write)(&self, addr, val);
+                        (self.gb_cart_ram_write)(self, addr, val);
                     } else if self.cart_mode_select != 0 && self.cart_ram_bank < self.num_ram_banks
                     {
                         (self.gb_cart_ram_write)(
-                            &self,
+                            self,
                             addr - CART_RAM_ADDR
                                 + (self.cart_ram_bank as usize * CRAM_BANK_SIZE as usize),
                             val,
                         )
                     } else if self.num_ram_banks != 0 {
-                        (self.gb_cart_ram_write)(&self, addr - CART_RAM_ADDR, val)
+                        (self.gb_cart_ram_write)(self, addr - CART_RAM_ADDR, val)
                     }
                 }
                 return;
@@ -1094,10 +1094,11 @@ impl<'a, T> Gb<'a, T> {
                                 0x69 => {
                                     self.cgb.bg_palette[(self.cgb.bg_palette_id & 0x3F) as usize] =
                                         val;
-                                    let fix_palette_temp = (self.cgb.bg_palette
-                                        [(self.cgb.bg_palette_id & 0x3E) as usize + 1]
+                                    let fix_palette_temp = ((self.cgb.bg_palette
+                                        [(self.cgb.bg_palette_id as usize & 0x3E) + 1]
                                         as u16)
-                                        << 8 + (self.cgb.bg_palette
+                                        << 8)
+                                        + (self.cgb.bg_palette
                                             [self.cgb.bg_palette_id as usize & 0x3E])
                                             as u16;
                                     self.cgb.fix_palette
@@ -1119,10 +1120,11 @@ impl<'a, T> Gb<'a, T> {
                                 0x6B => {
                                     self.cgb.oam_palette[self.cgb.oam_palette_id as usize & 0x3F] =
                                         val;
-                                    let fix_palette_temp = (self.cgb.oam_palette
+                                    let fix_palette_temp = ((self.cgb.oam_palette
                                         [(self.cgb.oam_palette_id as usize & 0x3E) + 1]
                                         as u16)
-                                        << 8 + (self.cgb.oam_palette
+                                        << 8)
+                                        + (self.cgb.oam_palette
                                             [self.cgb.oam_palette_id as usize & 0x3E])
                                             as u16;
                                     self.cgb.fix_palette
@@ -1640,7 +1642,7 @@ impl<'a, T> Gb<'a, T> {
             }
         }
 
-        self.display.lcd_draw_line.unwrap()(&self, pixels, self.hram_io[IO_LY]);
+        self.display.lcd_draw_line.unwrap()(self, pixels, self.hram_io[IO_LY]);
     }
 
     #[cfg(all(feature = "lcd", feature = "gbc"))]
@@ -1882,7 +1884,7 @@ impl<'a, T> Gb<'a, T> {
                     t2 = t2 >> 1;
                 }
 
-                disp_x -= 1;
+                disp_x = disp_x.wrapping_sub(1);
             }
 
             self.display.window_clear += 1;
@@ -1991,13 +1993,9 @@ impl<'a, T> Gb<'a, T> {
                 let mut t1;
                 let mut t2;
                 if self.cgb.mode != 0 {
-                    t1 = self.vram[(((of & OBJ_BANK) as usize) << 10)
-                        + VRAM_TILES_1 as usize
-                        + (ot as usize * 0x10 + 2 * py as usize)];
-                    t2 = self.vram[(((of & OBJ_BANK) as usize) << 10)
-                        + VRAM_TILES_1 as usize
-                        + (ot as usize * 0x10 + 2 * py as usize)
-                        + 1];
+                    t1 = self.vram[VRAM_TILES_1 as usize + (ot as usize * 0x10 + 2 * py as usize)];
+                    t2 = self.vram
+                        [VRAM_TILES_1 as usize + (ot as usize * 0x10 + 2 * py as usize) + 1];
                 } else {
                     t1 = self.vram[VRAM_TILES_1 as usize + ot as usize * 0x10 + 2 * py as usize];
                     t2 =
@@ -2043,9 +2041,9 @@ impl<'a, T> Gb<'a, T> {
                         let is_background_disabled =
                             c != 0 && (self.hram_io[IO_LCDC] & LCDC_BG_ENABLE) == 0;
                         let is_pixel_priority_non_conflicting = c != 0
-                            && (pixels_prio[disp_x as usize] != 0
+                            && !(pixels_prio[disp_x as usize] != 0
                                 && (pixels[disp_x as usize] & 0x3) != 0)
-                            && ((of & OBJ_PRIORITY) != 0 && (pixels[disp_x as usize] & 0x3) != 0);
+                            && !((of & OBJ_PRIORITY) != 0 && (pixels[disp_x as usize] & 0x3) != 0);
 
                         if is_background_disabled || is_pixel_priority_non_conflicting {
                             pixels[disp_x as usize] = ((of & OBJ_CGB_PALETTE) << 2) + c + 0x20;
@@ -2079,10 +2077,11 @@ impl<'a, T> Gb<'a, T> {
             }
         }
 
-        self.display.lcd_draw_line.unwrap()(&self, pixels, self.hram_io[IO_LY]);
+        self.display.lcd_draw_line.unwrap()(self, pixels, self.hram_io[IO_LY]);
     }
 
-    fn _step_cpu(&mut self) -> () {
+    //private this later
+    pub fn _step_cpu(&mut self) -> () {
         const OP_CYCLES: [u8; 0x100] = [
             4, 12, 8, 8, 4, 4, 8, 4, 20, 8, 8, 8, 4, 4, 8, 4, 4, 12, 8, 8, 4, 4, 8, 4, 12, 8, 8, 8,
             4, 4, 8, 4, 8, 12, 8, 8, 4, 4, 8, 4, 8, 8, 8, 8, 4, 4, 8, 4, 8, 12, 8, 8, 12, 12, 12,
@@ -2237,10 +2236,13 @@ impl<'a, T> Gb<'a, T> {
                 self.cpu_reg.a = (self.cpu_reg.a >> 1) | (self.cpu_reg.a << 7);
             }
             0x10 => {
-                self.gb_halt = true;
-                if (self.cgb.mode & self.cgb.double_speed_prep) != 0 {
-                    self.cgb.double_speed_prep = 0;
-                    self.cgb.double_speed ^= 1;
+                // self.gb_halt = true;
+                #[cfg(feature = "gbc")]
+                {
+                    if (self.cgb.mode & self.cgb.double_speed_prep) != 0 {
+                        self.cgb.double_speed_prep = 0;
+                        self.cgb.double_speed ^= 1;
+                    }
                 }
             }
             0x11 => {
@@ -2713,11 +2715,7 @@ impl<'a, T> Gb<'a, T> {
                 self.gb_halt = true;
 
                 if self.hram_io[IO_IE] == 0 {
-                    self.gb_error.unwrap()(
-                        &self,
-                        GbError::GbHaltForever,
-                        self.cpu_reg.pc.bytes - 1,
-                    );
+                    self.gb_error.unwrap()(self, GbError::GbHaltForever, self.cpu_reg.pc.bytes - 1);
                     panic!();
                 }
 
@@ -3377,7 +3375,7 @@ impl<'a, T> Gb<'a, T> {
                 self.cpu_reg.pc.bytes = 0x0038;
             }
             _ => {
-                self.gb_error.unwrap()(&self, GbError::GbInvalidOpcode, self.cpu_reg.pc.bytes - 1);
+                self.gb_error.unwrap()(self, GbError::GbInvalidOpcode, self.cpu_reg.pc.bytes - 1);
             }
         }
 
@@ -3454,7 +3452,7 @@ impl<'a, T> Gb<'a, T> {
                 let mut serial_cycles = SERIAL_CYCLES_1KB;
 
                 if self.counter.serial_count == 0 && self.gb_serial_tx.is_some() {
-                    self.gb_serial_tx.unwrap()(&self, self.hram_io[IO_SB])
+                    self.gb_serial_tx.unwrap()(self, self.hram_io[IO_SB])
                 };
 
                 #[cfg(feature = "gbc")]
@@ -3469,7 +3467,7 @@ impl<'a, T> Gb<'a, T> {
                 if self.counter.serial_count >= serial_cycles {
                     let mut rx: u8 = 0;
                     if self.gb_serial_rx.is_some_and(|frx| {
-                        matches!(frx(&self, &mut rx), GbSerialRxRet::GbSerialRxSuccess)
+                        matches!(frx(self, &mut rx), GbSerialRxRet::GbSerialRxSuccess)
                     }) {
                         self.hram_io[IO_SB] = rx;
 
@@ -3646,7 +3644,7 @@ impl<'a, T> Gb<'a, T> {
     pub fn get_save_size(&mut self) -> usize {
         const RAM_SIZE_LOCATION: usize = 0x0149;
         const RAM_SIZES: [usize; 5] = [0x00, 0x800, 0x2000, 0x8000, 0x20000];
-        let ram_size = (self.gb_rom_read)(&self, RAM_SIZE_LOCATION);
+        let ram_size = (self.gb_rom_read)(self, RAM_SIZE_LOCATION);
 
         if self.mbc == 2 {
             return 0x200;
@@ -3671,7 +3669,7 @@ impl<'a, T> Gb<'a, T> {
         const ROM_TITLE_END_ADDR: usize = 0x0143;
 
         for i in ROM_TITLE_START_ADDR..(ROM_TITLE_END_ADDR + 1) {
-            x += (self.gb_rom_read)(&self, i)
+            x += (self.gb_rom_read)(self, i)
         }
         return x;
     }
@@ -3688,7 +3686,7 @@ impl<'a, T> Gb<'a, T> {
         self.cycle = 0;
 
         if self.gb_bootrom_read.is_none() {
-            let hdr_chk = (self.gb_rom_read)(&self, ROM_HEADER_CHECKSUM_LOC as usize) != 0;
+            let hdr_chk = (self.gb_rom_read)(self, ROM_HEADER_CHECKSUM_LOC as usize) != 0;
 
             self.cpu_reg.a = 0x01;
             self.cpu_reg.f.set_z(true);
@@ -3791,6 +3789,14 @@ impl<'a, T> Gb<'a, T> {
         }
     }
 
+    pub fn set_joypad(&mut self, joypad: u8) -> () {
+        self.direct.joypad = joypad;
+    }
+
+    pub fn get_palette(&self) -> &[u16; 0x40] {
+        &self.cgb.fix_palette
+    }
+
     pub fn new(
         context: &T,
         gb_rom_read: fn(&Gb<T>, usize) -> u8,
@@ -3853,7 +3859,6 @@ impl<'a, T> Gb<'a, T> {
         };
 
         let mut x: u8 = 0;
-
         for i in 0x0134..(0x014C + 1) {
             x = x.wrapping_sub(gb_rom_read(&gb, i)).wrapping_sub(1);
         }
@@ -3872,14 +3877,17 @@ impl<'a, T> Gb<'a, T> {
                 CART_MBC[mbc_value as usize]
             }
         };
+
         gb.cart_ram = CART_RAM[gb_rom_read(&gb, MBC_LOCATION as usize) as usize];
+
         gb.num_rom_banks_mask =
             NUM_ROM_BANKS_MASK[gb_rom_read(&gb, BANK_COUNT_LOCATION as usize) as usize] - 1;
+
         gb.num_ram_banks = NUM_RAM_BANKS[gb_rom_read(&gb, RAM_SIZE_LOCATION as usize) as usize];
+
         gb.cgb = Cgb::new((gb_rom_read(&gb, CGB_FLAG as usize) & 0x80) >> 7);
 
         gb.gb_reset();
-
         return GbInitError::GbInitNoError(gb);
     }
 
@@ -3902,22 +3910,7 @@ impl<'a, T> Gb<'a, T> {
         title_str
     }
 
-    #[cfg(all(feature = "lcd", feature = "gbc"))]
-    pub fn gb_init_lcd(&mut self, lcd_draw_line: fn(&Gb<T>, [u8; 160], u8) -> ()) -> () {
-        self.display.lcd_draw_line = Some(lcd_draw_line);
-
-        self.direct.interlace = false;
-        self.display.interlace_count = false;
-        self.direct.frame_skip = false;
-        self.display.frame_skip_count = false;
-
-        self.display.window_clear = 0;
-        self.display.wy = 0;
-
-        return;
-    }
-
-    #[cfg(all(feature = "lcd", not(feature = "gbc")))]
+    #[cfg(feature = "lcd")]
     pub fn gb_init_lcd(&mut self, lcd_draw_line: fn(&Gb<T>, [u8; 160], u8) -> ()) -> () {
         self.display.lcd_draw_line = Some(lcd_draw_line);
 
@@ -3944,17 +3937,8 @@ impl<'a, T> Gb<'a, T> {
         self.rtc_real.set_yday((yday >> 8) as u8);
     }
 
-    pub fn set_joypad(&mut self, state: u8) -> () {
-        self.direct.joypad = state;
-    }
-
     pub fn get_context(&self) -> &T {
         &self.context
-    }
-
-    #[cfg(feature = "gbc")]
-    pub fn get_palette_fix(&self) -> &[u16; 0x40] {
-        &self.cgb.fix_palette
     }
 }
 
