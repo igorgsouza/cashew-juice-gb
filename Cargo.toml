@@ -1,0 +1,53 @@
+[package]
+name = "cashew-juice-espgb"
+version = "0.1.0"
+authors = ["Igor <igor.gs@hotmail.com>"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.77"
+
+[[bin]]
+name = "cashew-juice-espgb"
+harness = false             # do not use the built in cargo test harness -> resolve rust-analyzer errors
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true    # Symbols are nice and they don't increase the size on Flash
+opt-level = "z"
+
+[features]
+default = ["st7735", "gbc"]
+ili9341 = ["lcd", "12-colour", "high-lcd-accuracy"]
+st7735 = ["lcd", "12-colour", "high-lcd-accuracy"]
+sound = []
+lcd = []
+12-colour = []
+high-lcd-accuracy = []
+debug = []
+gbc = []
+
+[dependencies]
+svc = { package = "esp-idf-svc", version = "0.49", features = [
+    "std",
+    "binstart",
+    "alloc",
+    "experimental",
+] }
+log = { version = "0.4", default-features = false }
+
+display-interface-spi = "0.5.0"
+embedded-graphics = "0.8.1"
+ili9341 = "0.6.0"
+st7735-lcd = "0.10.0"
+mipidsi = "0.8.0"
+anyhow = "1.0.88"
+
+[patch.crates-io]
+esp-idf-svc = { git = "https://github.com/esp-rs/esp-idf-svc.git" }
+esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal.git" }
+
+
+[build-dependencies]
+embuild = "0.32.0"
