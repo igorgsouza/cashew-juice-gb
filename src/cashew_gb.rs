@@ -3916,7 +3916,7 @@ impl<'a, T> Gb<'a, T> {
 
         self.direct.interlace = false;
         self.display.interlace_count = false;
-        self.direct.frame_skip = false;
+        self.direct.frame_skip = true;
         self.display.frame_skip_count = false;
 
         self.display.window_clear = 0;
