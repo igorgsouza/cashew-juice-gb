@@ -22,10 +22,9 @@ struct Context {
 
 fn main() -> () {
     sys::link_patches();
-    svc::log::EspLogger::initialize_default();
     let peripherals: hal::peripherals::Peripherals = hal::peripherals::Peripherals::take().unwrap();
 
-    log::warn!(
+    println!(
         "starting - HEAP: {}B, STACK: {}B",
         unsafe { sys::esp_get_free_heap_size() },
         unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
@@ -120,7 +119,7 @@ fn main() -> () {
             ),
         );
         thread::Builder::new()
-            .stack_size(8 * KB)
+            .stack_size(64 * KB)
             .spawn_scoped(main_scope, move || {
                 display_channel_listener(display_channel_receiver, display)
             })
@@ -171,7 +170,7 @@ fn main() -> () {
         }
     });
 
-    log::info!("DONE!");
+    println!("DONE!");
 }
 
 fn rom_read(gb: &Gb<Context>, addr: usize) -> u8 {

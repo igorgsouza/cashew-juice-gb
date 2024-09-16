@@ -7,7 +7,7 @@ use mipidsi::options::{ColorInversion, ColorOrder, Orientation, Rotation};
 use svc::hal::{
     self,
     gpio::{Output, OutputPin, PinDriver},
-    spi::{SpiConfig, SpiDeviceDriver, SpiDriver},
+    spi::{config::Duplex, SpiConfig, SpiDeviceDriver, SpiDriver},
     units::MegaHertz,
 };
 
@@ -69,7 +69,10 @@ where
         let spi_device_driver = SpiDeviceDriver::new(
             spi_driver,
             Some(pins.cs),
-            &SpiConfig::new().baudrate(MegaHertz(60).into()),
+            &SpiConfig::new()
+                .baudrate(MegaHertz(60).into())
+                .duplex(Duplex::Full)
+                .write_only(true),
         )
         .unwrap();
 
