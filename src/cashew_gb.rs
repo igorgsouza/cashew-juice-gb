@@ -1,8 +1,8 @@
 use std::cmp;
 
-const LOG_CYCLE: u32 = 0;
-const LOG_EVERY: u32 = 10000;
-const LOG_SIZE: u32 = 100000;
+const LOG_CYCLE: u32 = 2199500;
+const LOG_EVERY: u32 = 1;
+const LOG_SIZE: u32 = 1000;
 pub const MAX_CYCLE: u32 = LOG_CYCLE + LOG_EVERY * LOG_SIZE;
 
 const VBLANK_INTR: u8 = 0x01;
@@ -354,21 +354,6 @@ impl<T> Display<T> {
     }
 }
 
-pub struct Direct {
-    interlace: bool,
-    frame_skip: bool,
-    joypad: u8,
-}
-impl Direct {
-    fn new() -> Direct {
-        Direct {
-            interlace: false,
-            frame_skip: false,
-            joypad: 0,
-        }
-    }
-}
-
 #[cfg(feature = "gbc")]
 struct Cgb {
     mode: u8,
@@ -441,7 +426,9 @@ pub struct Gb<'a, T> {
     display: Display<T>,
     #[cfg(feature = "gbc")]
     cgb: Cgb,
-    direct: Direct,
+    pub joypad: u8,
+    pub frame_skip: bool,
+    pub interlace: bool,
     gb_rom_read: fn(&Gb<T>, usize) -> u8,
     gb_cart_ram_read: fn(&Gb<T>, usize) -> u8,
     gb_cart_ram_write: fn(&Gb<T>, usize, u8) -> (),
@@ -450,7 +437,6 @@ pub struct Gb<'a, T> {
     gb_serial_rx: Option<fn(&Gb<T>, &mut u8) -> GbSerialRxRet>,
     gb_bootrom_read: Option<fn(&Gb<T>, usize) -> u8>,
     pub cycle: u32, //rmv
-    pub quit: bool, //rmv
     context: &'a T,
 }
 
@@ -899,9 +885,9 @@ impl<'a, T> Gb<'a, T> {
                     0x00 => {
                         self.hram_io[IO_JOYP] = val;
                         if self.hram_io[IO_JOYP] & 0x10 == 0 {
-                            self.hram_io[IO_JOYP] |= self.direct.joypad >> 4;
+                            self.hram_io[IO_JOYP] |= self.joypad >> 4;
                         } else {
-                            self.hram_io[IO_JOYP] |= self.direct.joypad & 0x0F;
+                            self.hram_io[IO_JOYP] |= self.joypad & 0x0F;
                         }
                         return;
                     }
@@ -1324,11 +1310,11 @@ impl<'a, T> Gb<'a, T> {
             return;
         }
 
-        if self.direct.frame_skip && !self.display.frame_skip_count {
+        if self.frame_skip && !self.display.frame_skip_count {
             return;
         }
 
-        if self.direct.interlace {
+        if self.interlace {
             if (!self.display.interlace_count && (self.hram_io[IO_LY] & 1) == 0)
                 || (self.display.interlace_count && (self.hram_io[IO_LY] & 1) == 1)
             {
@@ -1468,7 +1454,7 @@ impl<'a, T> Gb<'a, T> {
                 t2 = t2 >> 1;
                 px += 1;
 
-                disp_x -= 1;
+                disp_x = disp_x.wrapping_sub(1);
             }
 
             self.display.window_clear += 1;
@@ -1656,11 +1642,11 @@ impl<'a, T> Gb<'a, T> {
             return;
         }
 
-        if self.direct.frame_skip && !self.display.frame_skip_count {
+        if self.frame_skip && !self.display.frame_skip_count {
             return;
         }
 
-        if self.direct.interlace {
+        if self.interlace {
             if (!self.display.interlace_count && (self.hram_io[IO_LY] & 1) == 0)
                 || (self.display.interlace_count && (self.hram_io[IO_LY] & 1) == 1)
             {
@@ -1774,7 +1760,6 @@ impl<'a, T> Gb<'a, T> {
                 disp_x = disp_x.wrapping_sub(1);
             }
         }
-
         if (self.hram_io[IO_LCDC] & LCDC_WINDOW_ENABLE) != 0
             && self.hram_io[IO_LY] >= self.display.wy
             && self.hram_io[IO_WX] <= 166
@@ -1901,7 +1886,6 @@ impl<'a, T> Gb<'a, T> {
                 for sprite_number in 0..sprites_to_render.len() {
                     let oy = self.oam[4 * sprite_number as usize + 0];
                     let ox = self.oam[4 * sprite_number as usize + 1];
-
                     if self.hram_io[IO_LY] + {
                         if self.hram_io[IO_LCDC] & LCDC_OBJ_SIZE != 0 {
                             0
@@ -1918,14 +1902,15 @@ impl<'a, T> Gb<'a, T> {
                         sprite_number: sprite_number as u8,
                         x: ox,
                     });
+
                     number_of_sprites += 1;
                 }
 
                 if self.cgb.mode == 0 {
                     sprites_to_render.sort_unstable_by(|a, b| compare_sprites(a, b));
-                    if number_of_sprites > MAX_SPRITES_LINE {
-                        number_of_sprites = MAX_SPRITES_LINE
-                    }
+                }
+                if number_of_sprites > MAX_SPRITES_LINE {
+                    number_of_sprites = MAX_SPRITES_LINE
                 }
 
                 sprite_number = number_of_sprites.wrapping_sub(1);
@@ -2100,10 +2085,6 @@ impl<'a, T> Gb<'a, T> {
             || (self.gb_ime && (self.hram_io[IO_IF] & self.hram_io[IO_IE] & ANY_INTR) != 0)
         {
             self.gb_halt = false;
-
-            if !self.gb_ime {
-                break;
-            }
 
             self.gb_ime = false;
 
@@ -2353,12 +2334,12 @@ impl<'a, T> Gb<'a, T> {
                 self.cpu_reg.hl.bytes += 1;
             }
             0x24 => {
-                self.cpu_reg.de.set_hi(self.cpu_reg.de.get_hi() + 1);
+                self.cpu_reg.hl.set_hi(self.cpu_reg.hl.get_hi() + 1);
+                self.cpu_reg.f.set_h(self.cpu_reg.hl.get_hi() == 0x00);
+                self.cpu_reg.f.set_n(false);
                 self.cpu_reg
                     .f
-                    .set_h((self.cpu_reg.de.get_hi() & 0x0F) == 0x00);
-                self.cpu_reg.f.set_n(false);
-                self.cpu_reg.f.set_z(self.cpu_reg.de.get_hi() == 0x00)
+                    .set_z(self.cpu_reg.hl.get_hi() & 0x0F == 0x00)
             }
             0x25 => {
                 self.cpu_reg
@@ -3555,13 +3536,11 @@ impl<'a, T> Gb<'a, T> {
 
                     #[cfg(feature = "lcd")]
                     {
-                        if self.direct.frame_skip {
+                        if self.frame_skip {
                             self.display.frame_skip_count = !self.display.frame_skip_count;
                         }
 
-                        if self.direct.interlace
-                            && (!self.direct.frame_skip || self.display.frame_skip_count)
-                        {
+                        if self.interlace && (!self.frame_skip || self.display.frame_skip_count) {
                             self.display.interlace_count = !self.display.interlace_count;
                         }
                     }
@@ -3733,7 +3712,7 @@ impl<'a, T> Gb<'a, T> {
         self.counter.serial_count = 0;
         self.counter.rtc_count = 0;
 
-        self.direct.joypad = 0xFF;
+        self.joypad = 0xFF;
         self.hram_io[IO_JOYP] = 0xCF;
         self.hram_io[IO_SB] = 0x00;
         self.hram_io[IO_SC] = 0x7E;
@@ -3790,7 +3769,7 @@ impl<'a, T> Gb<'a, T> {
     }
 
     pub fn set_joypad(&mut self, joypad: u8) -> () {
-        self.direct.joypad = joypad;
+        self.joypad = joypad;
     }
 
     pub fn get_palette(&self) -> &[u16; 0x40] {
@@ -3843,7 +3822,9 @@ impl<'a, T> Gb<'a, T> {
             oam: [0; OAM_SIZE],
             hram_io: [0; HRAM_IO_SIZE],
             display: Display::new(),
-            direct: Direct::new(),
+            joypad: 0,
+            frame_skip: false,
+            interlace: false,
             #[cfg(feature = "gbc")]
             cgb: Cgb::new(0),
             gb_rom_read,
@@ -3853,7 +3834,6 @@ impl<'a, T> Gb<'a, T> {
             gb_serial_tx: None,
             gb_serial_rx: None,
             gb_bootrom_read: None,
-            quit: false,
             cycle: 0,
             context,
         };
@@ -3914,9 +3894,9 @@ impl<'a, T> Gb<'a, T> {
     pub fn gb_init_lcd(&mut self, lcd_draw_line: fn(&Gb<T>, [u8; 160], u8) -> ()) -> () {
         self.display.lcd_draw_line = Some(lcd_draw_line);
 
-        self.direct.interlace = false;
+        self.interlace = false;
         self.display.interlace_count = false;
-        self.direct.frame_skip = true;
+        self.frame_skip = false;
         self.display.frame_skip_count = false;
 
         self.display.window_clear = 0;

@@ -7,7 +7,7 @@ use svc::hal::delay::FreeRtos;
 use svc::hal::gpio::Gpio4;
 use svc::hal::gpio::Gpio5;
 use svc::hal::spi::{config::DriverConfig, Dma, SpiDriver};
-use svc::sys;
+use svc::sys::{self, esp_timer_get_time};
 
 mod cashew_gb;
 mod drivers;
@@ -161,12 +161,16 @@ fn main() -> () {
                     panic!("Failed to create Gameboy instance")
                 }
             };
-        let max_frame = 60 * 60 * 10;
-        for _ in 0..max_frame {
-            let input = controller.read_gb();
-            gb.set_joypad(!input);
-            gb.run_frame();
-            gb.get_context().display_channel_sender.send(None).unwrap();
+        loop {
+            let ts = unsafe { esp_timer_get_time() } / 1_000_000;
+            for _ in 0..60 {
+                let input = controller.read_gb();
+                gb.joypad = !input;
+                gb.run_frame();
+                gb.get_context().display_channel_sender.send(None).unwrap();
+            }
+            let ts = unsafe { esp_timer_get_time() } / 1_000_000 - ts;
+            println!("FPS:{}", 60.0 / (ts as f64))
         }
     });
 
