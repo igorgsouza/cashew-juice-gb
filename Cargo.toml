@@ -11,7 +11,7 @@ name = "cashew-juice-espgb"
 harness = false             # do not use the built in cargo test harness -> resolve rust-analyzer errors
 
 [profile.release]
-opt-level = 3
+opt-level = 2
 
 [profile.dev]
 debug = true    # Symbols are nice and they don't increase the size on Flash
@@ -50,4 +50,5 @@ esp-idf-hal = { git = "https://github.com/esp-rs/esp-idf-hal.git" }
 
 
 [build-dependencies]
+cc = "1.0"
 embuild = "0.32.0"

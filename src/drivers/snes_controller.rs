@@ -1,4 +1,4 @@
-use crate::cashew_gb::{
+use crate::peanut_gb::{
     JOYPAD_A, JOYPAD_B, JOYPAD_DOWN, JOYPAD_LEFT, JOYPAD_RIGHT, JOYPAD_SELECT, JOYPAD_START,
     JOYPAD_UP,
 };
@@ -77,6 +77,6 @@ where
         if input & 0xC0 != 0 {
             state |= JOYPAD_A;
         }
-        state
+        !state
     }
 }

@@ -11,7 +11,16 @@ use svc::hal::{
     units::MegaHertz,
 };
 
-use crate::cashew_gb::{LCD_HEIGHT, LCD_PALETTE_ALL, LCD_WIDTH};
+use crate::peanut_gb::{LCD_HEIGHT, LCD_PALETTE_ALL, LCD_WIDTH};
+
+const B_MASK: u16 = 0b11111 << 10;
+const G_MASK: u16 = 0b11111 << 5;
+const R_MASK: u16 = 0b11111;
+
+pub enum DisplayMessage {
+    Buffer(([u8; 160], u8)),
+    Draw([u16; 0x40]),
+}
 
 pub struct DisplayPins<CS, DC, RST>
 where
@@ -41,13 +50,13 @@ where
 {
     driver: mipidsi::Display<
         display_interface_spi::SPIInterface<
-            SpiDeviceDriver<'p, &'p SpiDriver<'p>>,
+            SpiDeviceDriver<'p, SpiDriver<'p>>,
             PinDriver<'p, DC, Output>,
         >,
         mipidsi::models::ST7735s,
         PinDriver<'p, RST, Output>,
     >,
-    buffer: Vec<Rgb565>,
+    buffer: Vec<u8>,
     palette: [[u16; 4]; 3],
     area: Rectangle,
 }
@@ -57,7 +66,7 @@ where
     RST: OutputPin,
 {
     pub fn new<CS>(
-        spi_driver: &'p SpiDriver<'static>,
+        spi_driver: SpiDriver<'static>,
         pins: DisplayPins<CS, DC, RST>,
     ) -> Display<'p, DC, RST>
     where
@@ -91,7 +100,7 @@ where
 
         Display {
             driver,
-            buffer: vec![Rgb565::WHITE; LCD_WIDTH as usize * LCD_HEIGHT as usize],
+            buffer: vec![0; LCD_WIDTH as usize * LCD_HEIGHT as usize],
             palette: [
                 [0x7FFF, 0x03E0, 0x1A00, 0x0120], /* OBJ0 */
                 [0x7FFF, 0x329F, 0x001F, 0x001F], /* OBJ1 */
@@ -107,22 +116,41 @@ where
     DC: OutputPin,
     RST: OutputPin,
 {
-    pub fn buffer_line_gb(&mut self, pixels: [u8; 160], line: u8) -> () {
-        for x in 0..LCD_WIDTH as usize {
-            self.buffer[x + (LCD_WIDTH as usize * line as usize)] = Rgb565::from(RawU16::new(
-                self.palette[((pixels[x] & LCD_PALETTE_ALL) as usize) >> 4][pixels[x] as usize & 3],
-            ));
-        }
+    // pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8, palette: [u16; 0x40]) -> () {
+    //     for x in 0..LCD_WIDTH as usize {
+    //         self.buffer[x + (LCD_WIDTH as usize * line as usize)] =
+    //             rgb565_from_u16(palette[pixels[x as usize] as usize]);
+    //     }
+    // }
+    pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8) -> () {
+        self.buffer[(line as usize * LCD_WIDTH as usize)
+            ..(LCD_WIDTH as usize + line as usize * LCD_WIDTH as usize)]
+            .copy_from_slice(&pixels);
     }
-    pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8, palette: [u16; 0x40]) -> () {
-        for x in 0..LCD_WIDTH as usize {
-            self.buffer[x + (LCD_WIDTH as usize * line as usize)] =
-                Rgb565::from(Rgb555::from(RawU16::new(palette[pixels[x] as usize])));
-        }
+    pub fn draw(&mut self, palette: [u16; 0x40]) -> () {
+        let frame = self
+            .buffer
+            .clone()
+            .into_iter()
+            .map(|p| rgb565_from_u16(palette[p as usize]));
+        self.driver.fill_contiguous(&self.area, frame).unwrap();
     }
-    pub fn draw(&mut self) -> () {
-        self.driver
-            .fill_contiguous(&self.area, self.buffer.clone())
-            .unwrap();
-    }
+    // pub fn draw(&mut self) -> () {
+    //     self.driver
+    //         .fill_contiguous(&self.area, self.buffer.clone())
+    //         .unwrap();
+    // }
+    // pub fn draw_line_gbc(&mut self, pixels: [u8; 160], line: u8, palette: &[u16; 0x40]) -> () {
+    //     let color_iter = pixels.map(|p| rgb565_from_u16(palette[p as usize]));
+    //     self.driver
+    //         .set_pixels(0, line as u16, 160, line as u16, color_iter)
+    //         .unwrap()
+    // }
+}
+
+fn rgb565_from_u16(color: u16) -> Rgb565 {
+    let r = ((color & B_MASK) >> 10) as u8;
+    let g = ((color & G_MASK) >> 5) as u8;
+    let b = (color & R_MASK) as u8;
+    Rgb565::new(r, g, b)
 }
