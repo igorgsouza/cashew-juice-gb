@@ -203,16 +203,16 @@ extern "C" {
     fn gb_set_bootrom(gb: *mut GbS, gb_bootrom_read: extern "C" fn(*mut GbS, u16) -> u8);
 }
 
-pub struct Context {
+pub struct Context<'a> {
     pub rom: Vec<u8>,
     pub ram: Vec<u8>,
-    pub display_channel_sender: Sender<DisplayMessage>,
+    pub display: Display<'a, Gpio4, Gpio5>,
 }
-pub struct PeanutGb {
+pub struct PeanutGb<'a> {
     gbs: Box<GbS>,
-    context: Context,
+    context: Context<'a>,
 }
-impl PeanutGb {
+impl<'a> PeanutGb<'a> {
     pub fn new(mut context: Context) -> PeanutGb {
         let mut gbs = Box::new(GbS {
             // Initialize function pointers to None
@@ -341,16 +341,17 @@ impl PeanutGb {
         }
     }
     pub fn frame(&mut self, joypad: u8) -> () {
-        self.gbs.direct.joypad = joypad;
         unsafe {
+            self.gbs.direct.joypad = joypad;
             gb_run_frame(&mut *self.gbs as *mut GbS);
         }
         if self.gbs.display.frame_skip_count == 0 {
-            self.context
-                .display_channel_sender
-                .send(DisplayMessage::Draw(self.gbs.cgb.fix_palette))
-                .unwrap();
+            // self.context
+            //     .display_channel_sender
+            //     .send(DisplayMessage::Draw(self.gbs.cgb.fix_palette))
+            //     .unwrap();
             println!("draw now!");
+            self.context.display.draw(self.gbs.cgb.fix_palette);
         }
         // println!("frame")
     }
@@ -390,9 +391,7 @@ extern "C" fn lcd_draw_line(gbs: *mut GbS, pixels_c: *const u8, line: u8) {
         let gb_s = &*gbs;
         let ctx = &mut *(gb_s.direct.private as *mut Context);
         copy_nonoverlapping(pixels_c, pixels.as_mut_ptr(), 160);
-        ctx.display_channel_sender
-            .send(DisplayMessage::Buffer((pixels, line)))
-            .unwrap();
+        ctx.display.buffer_line_gbc(pixels, line);
     }
     return;
 }

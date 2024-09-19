@@ -1,3 +1,4 @@
+#![feature(thread_spawn_unchecked)]
 use drivers::DisplayMessage;
 use peanut_gb::{Context, PeanutGb};
 use std::cell::RefCell;
@@ -12,20 +13,27 @@ use svc::sys::{self, esp_timer_get_time};
 
 mod drivers;
 mod peanut_gb;
-
 fn main() -> () {
     sys::link_patches();
     svc::log::EspLogger::initialize_default();
     let peripherals: hal::peripherals::Peripherals = hal::peripherals::Peripherals::take().unwrap();
 
-    let (display_channel_sender, display_channel_receiver) = channel::<DisplayMessage>();
-
-    let (clock_channel_sender, clock_channel_receiver) = channel::<Option<()>>();
+    log::warn!(
+        "Starting Application - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+    );
 
     let mut controller = drivers::SNESController::new(
         peripherals.pins.gpio15,
         peripherals.pins.gpio7,
         peripherals.pins.gpio6,
+    );
+
+    log::warn!(
+        "Controller Created - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
     );
 
     let spi_driver = SpiDriver::new(
@@ -36,7 +44,7 @@ fn main() -> () {
         &DriverConfig::default().dma(Dma::Auto(4096)),
     )
     .unwrap();
-    let mut display = drivers::Display::new(
+    let display = drivers::Display::new(
         spi_driver,
         drivers::DisplayPins::new(
             peripherals.pins.gpio1,
@@ -44,60 +52,77 @@ fn main() -> () {
             peripherals.pins.gpio5,
         ),
     );
-    let _display_thread = thread::Builder::new()
-        .stack_size(32 * 1024)
-        .spawn(move || loop {
-            match display_channel_receiver.recv() {
-                Ok(DisplayMessage::Buffer((pixels, line))) => {
-                    display.buffer_line_gbc(pixels, line);
-                }
-                Ok(DisplayMessage::Draw(palette)) => {
-                    display.draw(palette);
-                }
-                _ => {
-                    break;
-                }
-            }
-        })
-        .unwrap();
-    let _clock_thread = thread::Builder::new()
-        .stack_size(32 * 1024)
-        .spawn(move || loop {
-            match clock_channel_sender.send(Some(())) {
-                Ok(_) => {}
-                Err(_) => {
-                    break;
-                }
-            }
-            FreeRtos::delay_ms(16);
-        })
-        .unwrap();
+    log::warn!(
+        "Display Created - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+    );
+    // let _display_thread = thread::Builder::new()
+    //     .stack_size(32 * 1024)
+    //     .spawn(move || loop {
+    //         match display_channel_receiver.recv() {
+    //             Ok(DisplayMessage::Buffer((pixels, line))) => {
+    //                 display.buffer_line_gbc(pixels, line);
+    //             }
+    //             Ok(DisplayMessage::Draw(palette)) => {
+    //                 display.draw(palette);
+    //             }
+    //             _ => {
+    //                 break;
+    //             }
+    //         }
+    //     })
+    //     .unwrap();
+    // let _clock_thread = thread::Builder::new()
+    //     .stack_size(1024)
+    //     .spawn(move || loop {
+    //         match clock_channel_sender.send(Some(())) {
+    //             Ok(_) => {}
+    //             Err(_) => {
+    //                 break;
+    //             }
+    //         }
+    //         FreeRtos::delay_ms(16);
+    //     })
+    //     .unwrap();
 
     let rom = include_bytes!("../rom.gbc").to_vec();
     let ram = vec![0; 0x40];
+    log::warn!(
+        "Rom Loaded - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+    );
 
-    let mut gb = PeanutGb::new(Context {
-        rom,
-        ram,
-        display_channel_sender,
-    });
+    let mut gb = PeanutGb::new(Context { rom, ram, display });
+    log::warn!(
+        "Emulator Created - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+    );
 
     // println!("{}", gb.get_rom_name());
 
+    log::warn!(
+        "Starting Frame Loop - HEAP: {}B, STACK: {}B",
+        unsafe { sys::esp_get_free_heap_size() },
+        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
+    );
     loop {
         // let st = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
-        match clock_channel_receiver.recv() {
-            Ok(_) => {
-                let input = controller.read_gb();
-                gb.frame(input);
-            }
-            Err(_) => {
-                break;
-            }
-        }
+        // match clock_channel_receiver.recv() {
+        //     Ok(_) => {
+        let input = controller.read_gb();
+        gb.frame(input);
+        //     }
+        //     Err(_) => {
+        //         break;
+        //     }
+        // }
         // let et = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
         // let dt = et - st;
         // thread::Builder::new().spawn(|| println!("?")).unwrap();
         // println!("FPS: {:?}", fps_buffer as f64 / dt)
+        FreeRtos::delay_ms(17);
     }
 }

@@ -1,3 +1,8 @@
+use std::{
+    sync::Mutex,
+    thread::{self, JoinHandle},
+};
+
 use embedded_graphics::{
     pixelcolor::{raw::RawU16, Rgb555, Rgb565},
     prelude::*,
@@ -20,6 +25,43 @@ const R_MASK: u16 = 0b11111;
 pub enum DisplayMessage {
     Buffer(([u8; 160], u8)),
     Draw([u16; 0x40]),
+}
+
+struct FrameBuffer {
+    data: [Mutex<[u8; 160]>; 128],
+    threads: Vec<JoinHandle<()>>,
+}
+impl FrameBuffer {
+    fn new() -> FrameBuffer {
+        const ARRAY_REPEAT_VALUE: Mutex<[u8; 160]> = Mutex::new([0; 160]);
+        FrameBuffer {
+            data: [ARRAY_REPEAT_VALUE; 128],
+            threads: vec![],
+        }
+    }
+    fn insert_line(&mut self, pixels: [u8; 160], line: u8) {
+        let handler = unsafe {
+            thread::Builder::new()
+                .spawn_unchecked(|| {
+                    if line > 128 {
+                        return;
+                    }
+                    *self.data[line as usize].lock().unwrap() = pixels;
+                })
+                .unwrap()
+        };
+        self.threads.push(handler);
+    }
+    fn get_raw(&mut self) -> Vec<u8> {
+        for handle in self.threads.drain(..) {
+            handle.join().unwrap();
+        }
+        let mut output: Vec<u8> = vec![];
+        for line in &self.data {
+            output.extend_from_slice(line.lock().unwrap().as_ref());
+        }
+        output
+    }
 }
 
 pub struct DisplayPins<CS, DC, RST>
@@ -56,7 +98,7 @@ where
         mipidsi::models::ST7735s,
         PinDriver<'p, RST, Output>,
     >,
-    buffer: Vec<u8>,
+    buffer: FrameBuffer,
     palette: [[u16; 4]; 3],
     area: Rectangle,
 }
@@ -100,7 +142,7 @@ where
 
         Display {
             driver,
-            buffer: vec![0; LCD_WIDTH as usize * LCD_HEIGHT as usize],
+            buffer: FrameBuffer::new(),
             palette: [
                 [0x7FFF, 0x03E0, 0x1A00, 0x0120], /* OBJ0 */
                 [0x7FFF, 0x329F, 0x001F, 0x001F], /* OBJ1 */
@@ -122,15 +164,18 @@ where
     //             rgb565_from_u16(palette[pixels[x as usize] as usize]);
     //     }
     // }
+    // pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8) -> () {
+    //     self.buffer[(line as usize * LCD_WIDTH as usize)
+    //         ..(LCD_WIDTH as usize + line as usize * LCD_WIDTH as usize)]
+    //         .copy_from_slice(&pixels);
+    // }
     pub fn buffer_line_gbc(&mut self, pixels: [u8; 160], line: u8) -> () {
-        self.buffer[(line as usize * LCD_WIDTH as usize)
-            ..(LCD_WIDTH as usize + line as usize * LCD_WIDTH as usize)]
-            .copy_from_slice(&pixels);
+        self.buffer.insert_line(pixels, line);
     }
     pub fn draw(&mut self, palette: [u16; 0x40]) -> () {
         let frame = self
             .buffer
-            .clone()
+            .get_raw()
             .into_iter()
             .map(|p| rgb565_from_u16(palette[p as usize]));
         self.driver.fill_contiguous(&self.area, frame).unwrap();
