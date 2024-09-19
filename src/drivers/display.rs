@@ -9,11 +9,14 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 use mipidsi::options::{ColorInversion, ColorOrder, Orientation, Rotation};
-use svc::hal::{
-    self,
-    gpio::{Output, OutputPin, PinDriver},
-    spi::{config::Duplex, SpiConfig, SpiDeviceDriver, SpiDriver},
-    units::MegaHertz,
+use svc::{
+    hal::{
+        self,
+        gpio::{Output, OutputPin, PinDriver},
+        spi::{config::Duplex, SpiConfig, SpiDeviceDriver, SpiDriver},
+        units::MegaHertz,
+    },
+    sys,
 };
 
 use crate::peanut_gb::{LCD_HEIGHT, LCD_PALETTE_ALL, LCD_WIDTH};
@@ -28,37 +31,26 @@ pub enum DisplayMessage {
 }
 
 struct FrameBuffer {
-    data: [Mutex<[u8; 160]>; 128],
+    data: [[u8; 160]; 128],
     threads: Vec<JoinHandle<()>>,
 }
 impl FrameBuffer {
     fn new() -> FrameBuffer {
-        const ARRAY_REPEAT_VALUE: Mutex<[u8; 160]> = Mutex::new([0; 160]);
         FrameBuffer {
-            data: [ARRAY_REPEAT_VALUE; 128],
+            data: [[0; 160]; 128],
             threads: vec![],
         }
     }
     fn insert_line(&mut self, pixels: [u8; 160], line: u8) {
-        let handler = unsafe {
-            thread::Builder::new()
-                .spawn_unchecked(|| {
-                    if line > 128 {
-                        return;
-                    }
-                    *self.data[line as usize].lock().unwrap() = pixels;
-                })
-                .unwrap()
-        };
-        self.threads.push(handler);
+        if line > 127 {
+            return;
+        }
+        self.data[line as usize] = pixels;
     }
     fn get_raw(&mut self) -> Vec<u8> {
-        for handle in self.threads.drain(..) {
-            handle.join().unwrap();
-        }
         let mut output: Vec<u8> = vec![];
         for line in &self.data {
-            output.extend_from_slice(line.lock().unwrap().as_ref());
+            output.extend_from_slice(line);
         }
         output
     }

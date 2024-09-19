@@ -1,6 +1,6 @@
 #![feature(thread_spawn_unchecked)]
-use drivers::DisplayMessage;
-use peanut_gb::{Context, PeanutGb};
+use drivers::{Display, DisplayMessage};
+use peanut_gb::PeanutGb;
 use std::cell::RefCell;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
 use std::thread;
@@ -10,6 +10,10 @@ use svc::hal::gpio::Gpio4;
 use svc::hal::gpio::Gpio5;
 use svc::hal::spi::{config::DriverConfig, Dma, SpiDriver};
 use svc::sys::{self, esp_timer_get_time};
+
+static ROM: &[u8] = include_bytes!("../rom.gbc");
+static mut RAM: &mut [u8; 0x8000] = &mut [0; 0x8000];
+static mut DISPLAY: Option<Display<Gpio4, Gpio5>> = None;
 
 mod drivers;
 mod peanut_gb;
@@ -57,6 +61,9 @@ fn main() -> () {
         unsafe { sys::esp_get_free_heap_size() },
         unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
     );
+    unsafe {
+        DISPLAY = Some(display);
+    }
     // let _display_thread = thread::Builder::new()
     //     .stack_size(32 * 1024)
     //     .spawn(move || loop {
@@ -86,15 +93,7 @@ fn main() -> () {
     //     })
     //     .unwrap();
 
-    let rom = include_bytes!("../rom.gbc").to_vec();
-    let ram = vec![0; 0x40];
-    log::warn!(
-        "Rom Loaded - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
-    );
-
-    let mut gb = PeanutGb::new(Context { rom, ram, display });
+    let mut gb = PeanutGb::new();
     log::warn!(
         "Emulator Created - HEAP: {}B, STACK: {}B",
         unsafe { sys::esp_get_free_heap_size() },

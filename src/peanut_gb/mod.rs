@@ -9,6 +9,7 @@ use svc::hal::gpio::{Gpio4, Gpio5};
 use svc::sys::{esp_timer_get_time, tm};
 
 use crate::drivers::{Display, DisplayMessage};
+use crate::*;
 
 const WRAM_SIZE: usize = 0x8000;
 const VRAM_SIZE: usize = 0x4000;
@@ -203,17 +204,11 @@ extern "C" {
     fn gb_set_bootrom(gb: *mut GbS, gb_bootrom_read: extern "C" fn(*mut GbS, u16) -> u8);
 }
 
-pub struct Context<'a> {
-    pub rom: Vec<u8>,
-    pub ram: Vec<u8>,
-    pub display: Display<'a, Gpio4, Gpio5>,
-}
-pub struct PeanutGb<'a> {
+pub struct PeanutGb {
     gbs: Box<GbS>,
-    context: Context<'a>,
 }
-impl<'a> PeanutGb<'a> {
-    pub fn new(mut context: Context) -> PeanutGb {
+impl PeanutGb {
+    pub fn new() -> PeanutGb {
         let mut gbs = Box::new(GbS {
             // Initialize function pointers to None
             gb_rom_read: None,
@@ -314,18 +309,12 @@ impl<'a> PeanutGb<'a> {
                 gb_cart_ram_read,
                 gb_cart_ram_write,
                 gb_error,
-                &mut context as *mut _ as *mut c_void,
+                null_mut(),
             );
-            println!("in;itted");
-            context
-                .ram
-                .extend(vec![0; gb_get_save_size(&mut *gbs as *mut GbS) as usize]);
-            println!("ram size: {}", context.ram.len());
             gb_init_lcd(&mut *gbs as *mut GbS, lcd_draw_line);
-            println!("lcd initted");
             gbs.direct.frame_skip = 1;
         }
-        PeanutGb { gbs, context }
+        PeanutGb { gbs }
     }
     pub fn get_rom_name(&mut self) -> String {
         let mut buffer = vec![0 as c_char; 128];
@@ -346,38 +335,24 @@ impl<'a> PeanutGb<'a> {
             gb_run_frame(&mut *self.gbs as *mut GbS);
         }
         if self.gbs.display.frame_skip_count == 0 {
-            // self.context
-            //     .display_channel_sender
-            //     .send(DisplayMessage::Draw(self.gbs.cgb.fix_palette))
-            //     .unwrap();
-            println!("draw now!");
-            self.context.display.draw(self.gbs.cgb.fix_palette);
+            unsafe {
+                DISPLAY.as_mut().unwrap().draw(self.gbs.cgb.fix_palette);
+            }
         }
-        // println!("frame")
     }
 }
 
-extern "C" fn gb_rom_read(gbs: *mut GbS, address: u32) -> u8 {
-    unsafe {
-        let gb_s = &*gbs;
-        let ctx = &*(gb_s.direct.private as *const Context);
-        return ctx.rom[address as usize];
-    };
+extern "C" fn gb_rom_read(_gbs: *mut GbS, address: u32) -> u8 {
+    ROM[address as usize]
 }
 
 extern "C" fn gb_cart_ram_read(gbs: *mut GbS, address: u32) -> u8 {
-    unsafe {
-        let gb_s = &*gbs;
-        let ctx = &*(gb_s.direct.private as *const Context);
-        return ctx.ram[address as usize];
-    }
+    unsafe { RAM[address as usize] }
 }
 
 extern "C" fn gb_cart_ram_write(gbs: *mut GbS, address: u32, value: u8) {
     unsafe {
-        let gb_s = &*gbs;
-        let ctx = &mut *(gb_s.direct.private as *mut Context);
-        ctx.ram[address as usize] = value;
+        RAM[address as usize] = value;
     }
 }
 
@@ -388,10 +363,8 @@ extern "C" fn gb_error(gbs: *mut GbS, error: GbError, code: u16) {
 extern "C" fn lcd_draw_line(gbs: *mut GbS, pixels_c: *const u8, line: u8) {
     let mut pixels = [0u8; 160];
     unsafe {
-        let gb_s = &*gbs;
-        let ctx = &mut *(gb_s.direct.private as *mut Context);
         copy_nonoverlapping(pixels_c, pixels.as_mut_ptr(), 160);
-        ctx.display.buffer_line_gbc(pixels, line);
+        DISPLAY.as_mut().unwrap().buffer_line_gbc(pixels, line);
     }
     return;
 }
