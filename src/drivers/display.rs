@@ -31,26 +31,39 @@ pub enum DisplayMessage {
 }
 
 struct FrameBuffer {
-    data: [[u8; 160]; 128],
+    data: [Mutex<[u8; 160]>; 128],
     threads: Vec<JoinHandle<()>>,
 }
 impl FrameBuffer {
     fn new() -> FrameBuffer {
+        const ARRAY_REPEAT_VALUE: Mutex<[u8; 160]> = Mutex::new([0; 160]);
         FrameBuffer {
-            data: [[0; 160]; 128],
+            data: [ARRAY_REPEAT_VALUE; 128],
             threads: vec![],
         }
     }
     fn insert_line(&mut self, pixels: [u8; 160], line: u8) {
-        if line > 127 {
-            return;
-        }
-        self.data[line as usize] = pixels;
+        println!("{}", self.threads.len());
+        let handler = unsafe {
+            thread::Builder::new()
+                .stack_size(1536)
+                .spawn_unchecked(|| {
+                    if line > 128 {
+                        return;
+                    }
+                    *self.data[line as usize].lock().unwrap() = pixels;
+                })
+                .unwrap()
+        };
+        self.threads.push(handler);
     }
     fn get_raw(&mut self) -> Vec<u8> {
+        for handle in self.threads.drain(..) {
+            handle.join().unwrap();
+        }
         let mut output: Vec<u8> = vec![];
         for line in &self.data {
-            output.extend_from_slice(line);
+            output.extend_from_slice(line.lock().unwrap().as_ref());
         }
         output
     }

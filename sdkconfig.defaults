@@ -2,6 +2,7 @@
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=153600
 
 # Use this to set FreeRTOS kernel tick frequency to 1000 Hz (100 Hz by default).
