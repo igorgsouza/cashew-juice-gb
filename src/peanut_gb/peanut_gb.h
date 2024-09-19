@@ -4029,7 +4029,6 @@ enum gb_init_error_e gb_init(struct gb_s *gb,
 	const uint16_t bank_count_location = 0x0148;
 	const uint16_t ram_size_location = 0x0149;
 
-	printf("c_size:%d\n", sizeof(struct gb_s));
 	/**
 	 * Table for cartridge type (MBC). -1 if invalid.
 	 * TODO: MMM01 is untested.

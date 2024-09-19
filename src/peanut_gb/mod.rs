@@ -204,11 +204,12 @@ extern "C" {
     fn gb_set_bootrom(gb: *mut GbS, gb_bootrom_read: extern "C" fn(*mut GbS, u16) -> u8);
 }
 
-pub struct PeanutGb {
+pub struct PeanutGb<'a> {
     gbs: Box<GbS>,
+    display: Display<'a, Gpio4, Gpio5>,
 }
-impl PeanutGb {
-    pub fn new() -> PeanutGb {
+impl<'a> PeanutGb<'a> {
+    pub fn new(display: Display<'a, Gpio4, Gpio5>) -> PeanutGb<'a> {
         let mut gbs = Box::new(GbS {
             // Initialize function pointers to None
             gb_rom_read: None,
@@ -314,7 +315,7 @@ impl PeanutGb {
             gb_init_lcd(&mut *gbs as *mut GbS, lcd_draw_line);
             gbs.direct.frame_skip = 1;
         }
-        PeanutGb { gbs }
+        PeanutGb { gbs, display }
     }
     pub fn get_rom_name(&mut self) -> String {
         let mut buffer = vec![0 as c_char; 128];
@@ -335,9 +336,7 @@ impl PeanutGb {
             gb_run_frame(&mut *self.gbs as *mut GbS);
         }
         if self.gbs.display.frame_skip_count == 0 {
-            unsafe {
-                DISPLAY.as_mut().unwrap().draw(self.gbs.cgb.fix_palette);
-            }
+            self.display.draw(&self.gbs.cgb.fix_palette);
         }
     }
 }
@@ -360,11 +359,15 @@ extern "C" fn gb_error(gbs: *mut GbS, error: GbError, code: u16) {
     return;
 }
 
-extern "C" fn lcd_draw_line(gbs: *mut GbS, pixels_c: *const u8, line: u8) {
-    let mut pixels = [0u8; 160];
-    unsafe {
-        copy_nonoverlapping(pixels_c, pixels.as_mut_ptr(), 160);
-        DISPLAY.as_mut().unwrap().buffer_line_gbc(pixels, line);
+extern "C" fn lcd_draw_line(gbs: *mut GbS, pixels: *const u8, line: u8) {
+    if line < 128 {
+        unsafe {
+            copy_nonoverlapping(
+                pixels,
+                FRAME_BUFFER.as_mut_ptr().add((line as usize) * 160),
+                160,
+            );
+        }
     }
     return;
 }

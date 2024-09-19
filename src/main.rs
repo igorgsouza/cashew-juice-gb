@@ -12,8 +12,8 @@ use svc::hal::spi::{config::DriverConfig, Dma, SpiDriver};
 use svc::sys::{self, esp_timer_get_time};
 
 static ROM: &[u8] = include_bytes!("../rom.gbc");
-static mut RAM: &mut [u8; 0x8000] = &mut [0; 0x8000];
-static mut DISPLAY: Option<Display<Gpio4, Gpio5>> = None;
+static mut RAM: &mut [u8; 0x2000] = &mut [0; 0x2000];
+static mut FRAME_BUFFER: &mut [u8; 160 * 128] = &mut [0; 160 * 128];
 
 mod drivers;
 mod peanut_gb;
@@ -22,22 +22,10 @@ fn main() -> () {
     svc::log::EspLogger::initialize_default();
     let peripherals: hal::peripherals::Peripherals = hal::peripherals::Peripherals::take().unwrap();
 
-    log::warn!(
-        "Starting Application - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
-    );
-
     let mut controller = drivers::SNESController::new(
         peripherals.pins.gpio15,
         peripherals.pins.gpio7,
         peripherals.pins.gpio6,
-    );
-
-    log::warn!(
-        "Controller Created - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
     );
 
     let spi_driver = SpiDriver::new(
@@ -56,72 +44,34 @@ fn main() -> () {
             peripherals.pins.gpio5,
         ),
     );
-    log::warn!(
-        "Display Created - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
-    );
-    unsafe {
-        DISPLAY = Some(display);
-    }
-    // let _display_thread = thread::Builder::new()
-    //     .stack_size(32 * 1024)
-    //     .spawn(move || loop {
-    //         match display_channel_receiver.recv() {
-    //             Ok(DisplayMessage::Buffer((pixels, line))) => {
-    //                 display.buffer_line_gbc(pixels, line);
-    //             }
-    //             Ok(DisplayMessage::Draw(palette)) => {
-    //                 display.draw(palette);
-    //             }
-    //             _ => {
-    //                 break;
-    //             }
-    //         }
-    //     })
-    //     .unwrap();
-    // let _clock_thread = thread::Builder::new()
-    //     .stack_size(1024)
-    //     .spawn(move || loop {
-    //         match clock_channel_sender.send(Some(())) {
-    //             Ok(_) => {}
-    //             Err(_) => {
-    //                 break;
-    //             }
-    //         }
-    //         FreeRtos::delay_ms(16);
-    //     })
-    //     .unwrap();
 
-    let mut gb = PeanutGb::new();
-    log::warn!(
-        "Emulator Created - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
-    );
+    let (clock_channel_sender, clock_channel_receiver) = channel();
+    let _clock_thread = thread::Builder::new()
+        .spawn(move || loop {
+            clock_channel_sender.send(Some(())).unwrap();
+            FreeRtos::delay_ms(17);
+        })
+        .unwrap();
+
+    let mut gb = PeanutGb::new(display);
 
     // println!("{}", gb.get_rom_name());
 
-    log::warn!(
-        "Starting Frame Loop - HEAP: {}B, STACK: {}B",
-        unsafe { sys::esp_get_free_heap_size() },
-        unsafe { svc::sys::uxTaskGetStackHighWaterMark(core::ptr::null_mut()) }
-    );
     loop {
         // let st = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
-        // match clock_channel_receiver.recv() {
-        //     Ok(_) => {
-        let input = controller.read_gb();
-        gb.frame(input);
-        //     }
-        //     Err(_) => {
-        //         break;
-        //     }
-        // }
+        match clock_channel_receiver.recv() {
+            Ok(_) => {
+                let input = controller.read_gb();
+                gb.frame(input);
+            }
+            Err(_) => {
+                break;
+            }
+        }
         // let et = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
         // let dt = et - st;
         // thread::Builder::new().spawn(|| println!("?")).unwrap();
         // println!("FPS: {:?}", fps_buffer as f64 / dt)
-        FreeRtos::delay_ms(17);
+        // FreeRtos::delay_ms(20);
     }
 }
