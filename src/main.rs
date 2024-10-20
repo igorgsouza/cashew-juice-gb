@@ -13,7 +13,7 @@ use svc::sys::{self, esp_timer_get_time};
 
 static ROM: &[u8] = include_bytes!("../rom.gbc");
 static mut RAM: &mut [u8; 0x2000] = &mut [0; 0x2000];
-static mut FRAME_BUFFER: &mut [u8; 160 * 128] = &mut [0; 160 * 128];
+static mut FRAME_BUFFER: &mut [u8; 160 * 144] = &mut [0; 160 * 144];
 
 mod drivers;
 mod peanut_gb;

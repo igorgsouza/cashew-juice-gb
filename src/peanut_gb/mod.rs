@@ -360,7 +360,7 @@ extern "C" fn gb_error(gbs: *mut GbS, error: GbError, code: u16) {
 }
 
 extern "C" fn lcd_draw_line(gbs: *mut GbS, pixels: *const u8, line: u8) {
-    if line < 128 {
+    if line < 144 {
         unsafe {
             copy_nonoverlapping(
                 pixels,

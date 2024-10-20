@@ -62,7 +62,7 @@ where
             SpiDeviceDriver<'p, SpiDriver<'p>>,
             PinDriver<'p, DC, Output>,
         >,
-        mipidsi::models::ST7735s,
+        mipidsi::models::ILI9341Rgb565,
         PinDriver<'p, RST, Output>,
     >,
     palette: [[u16; 4]; 3],
@@ -95,13 +95,13 @@ where
 
         let spi_interface = display_interface_spi::SPIInterface::new(spi_device_driver, dc);
 
-        let mut driver = mipidsi::Builder::new(mipidsi::models::ST7735s, spi_interface)
+        let mut driver = mipidsi::Builder::new(mipidsi::models::ILI9341Rgb565, spi_interface)
             .reset_pin(rst)
             .orientation(Orientation {
-                rotation: Rotation::Deg270,
-                mirrored: false,
+                rotation: Rotation::Deg90,
+                mirrored: true,
             })
-            .color_order(ColorOrder::Rgb)
+            .color_order(ColorOrder::Bgr)
             .init(&mut hal::delay::Ets)
             .unwrap();
         driver.clear(Rgb565::BLACK).unwrap();
@@ -113,7 +113,7 @@ where
                 [0x7FFF, 0x329F, 0x001F, 0x001F], /* OBJ1 */
                 [0x7FFF, 0x7E10, 0x48E7, 0x0000], /* BG */
             ],
-            area: Rectangle::new(Point::new(0, 0), Size::new(LCD_WIDTH as u32, 128)),
+            area: Rectangle::new(Point::new(0, 0), Size::new(LCD_WIDTH as u32, 144)),
         }
     }
 }
