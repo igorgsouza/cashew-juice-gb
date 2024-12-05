@@ -1,18 +1,21 @@
 #![feature(thread_spawn_unchecked)]
-use drivers::{Display, DisplayMessage};
-use peanut_gb::PeanutGb;
-use std::cell::RefCell;
-use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
+use peanut_gb::{PeanutGb, JOYPAD_SELECT, JOYPAD_START};
+use std::fs::OpenOptions;
+use std::io::{Read, Write};
+use std::sync::mpsc::channel;
 use std::thread;
+use svc::fs::fatfs::Fatfs;
 use svc::hal;
 use svc::hal::delay::FreeRtos;
-use svc::hal::gpio::Gpio4;
-use svc::hal::gpio::Gpio5;
+use svc::hal::gpio::AnyIOPin;
+use svc::hal::sd::spi::SdSpiHostDriver;
+use svc::hal::sd::{SdCardConfiguration, SdCardDriver};
 use svc::hal::spi::{config::DriverConfig, Dma, SpiDriver};
-use svc::sys::{self, esp_timer_get_time};
+use svc::io::vfs::MountedFatfs;
+use svc::sys;
 
-static ROM: &[u8] = include_bytes!("../rom.gbc");
-static mut RAM: &mut [u8; 0x2000] = &mut [0; 0x2000];
+static mut ROM: &mut [u8] = &mut [];
+static mut CART_RAM: &mut [u8] = &mut [];
 static mut FRAME_BUFFER: &mut [u8; 160 * 144] = &mut [0; 160 * 144];
 
 mod drivers;
@@ -36,8 +39,51 @@ fn main() -> () {
         &DriverConfig::default().dma(Dma::Auto(4096)),
     )
     .unwrap();
+
+    let mut cfg = SdCardConfiguration::new();
+    cfg.speed_khz = 16 * 1024 as u32;
+
+    let sd_card_driver = SdCardDriver::new_spi(
+        SdSpiHostDriver::new(
+            &spi_driver,
+            Some(peripherals.pins.gpio2),
+            AnyIOPin::none(),
+            AnyIOPin::none(),
+            AnyIOPin::none(),
+            None,
+        )
+        .unwrap(),
+        &cfg,
+    )
+    .unwrap();
+
+    let _mounted_fatfs =
+        MountedFatfs::mount(Fatfs::new_sdcard(0, sd_card_driver).unwrap(), "/sdcard", 4).unwrap();
+
+    let mut rom_file = OpenOptions::new()
+        .read(true)
+        .open("/sdcard/rom.gbc")
+        .unwrap();
+    let mut rom_bytes: Vec<u8> = vec![];
+    rom_file.read_to_end(&mut rom_bytes);
+    unsafe {
+        ROM = Box::leak(rom_bytes.into_boxed_slice());
+    }
+    drop(rom_file);
+
+    match OpenOptions::new().read(true).open("/sdcard/sram.sav") {
+        Ok(mut sram_file) => {
+            let mut sram_bytes: Vec<u8> = vec![];
+            sram_file.read_to_end(&mut sram_bytes).unwrap();
+            unsafe {
+                CART_RAM = Box::leak(sram_bytes.into_boxed_slice());
+            };
+        }
+        Err(_) => {}
+    }
+
     let display = drivers::Display::new(
-        spi_driver,
+        &spi_driver,
         drivers::DisplayPins::new(
             peripherals.pins.gpio1,
             peripherals.pins.gpio4,
@@ -45,13 +91,13 @@ fn main() -> () {
         ),
     );
 
-    let (clock_channel_sender, clock_channel_receiver) = channel();
-    let _clock_thread = thread::Builder::new()
-        .spawn(move || loop {
-            clock_channel_sender.send(Some(())).unwrap();
-            FreeRtos::delay_ms(17);
-        })
-        .unwrap();
+    // let (clock_channel_sender, clock_channel_receiver) = channel();
+    // let _clock_thread = thread::Builder::new()
+    //     .spawn(move || loop {
+    //         clock_channel_sender.send(Some(())).unwrap();
+    //         FreeRtos::delay_ms(17);
+    //     })
+    //     .unwrap();
 
     let mut gb = PeanutGb::new(display);
 
@@ -59,19 +105,31 @@ fn main() -> () {
 
     loop {
         // let st = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
-        match clock_channel_receiver.recv() {
-            Ok(_) => {
-                let input = controller.read_gb();
-                gb.frame(input);
-            }
-            Err(_) => {
-                break;
-            }
+        // match clock_channel_receiver.recv() {
+        //     Ok(_) => {
+        let input = controller.read_gb();
+        if input & (JOYPAD_START | JOYPAD_SELECT) == 0 {
+            break;
         }
+        gb.frame(input);
+        //     }
+        //     Err(_) => {
+        //         break;
+        //     }
+        // }
         // let et = unsafe { esp_timer_get_time() as f64 } / 1_000_000.0;
         // let dt = et - st;
         // thread::Builder::new().spawn(|| println!("?")).unwrap();
         // println!("FPS: {:?}", fps_buffer as f64 / dt)
         // FreeRtos::delay_ms(20);
+    }
+    let mut sram_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("/sdcard/sram.sav")
+        .unwrap();
+
+    unsafe {
+        sram_file.write_all(&CART_RAM);
     }
 }

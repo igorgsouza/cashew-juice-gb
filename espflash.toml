@@ -6,4 +6,8 @@ partition_table = "partitions.csv"
 vid = "303a"
 pid = "1001"
 
+[[usb_device]]
+vid = "1a86"
+pid = "55d3"
+
 [flash]

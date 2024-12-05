@@ -59,7 +59,7 @@ where
 {
     driver: mipidsi::Display<
         display_interface_spi::SPIInterface<
-            SpiDeviceDriver<'p, SpiDriver<'p>>,
+            SpiDeviceDriver<'p, &'p SpiDriver<'p>>,
             PinDriver<'p, DC, Output>,
         >,
         mipidsi::models::ILI9341Rgb565,
@@ -74,7 +74,7 @@ where
     RST: OutputPin,
 {
     pub fn new<CS>(
-        spi_driver: SpiDriver<'static>,
+        spi_driver: &'p SpiDriver<'static>,
         pins: DisplayPins<CS, DC, RST>,
     ) -> Display<'p, DC, RST>
     where
@@ -98,7 +98,7 @@ where
         let mut driver = mipidsi::Builder::new(mipidsi::models::ILI9341Rgb565, spi_interface)
             .reset_pin(rst)
             .orientation(Orientation {
-                rotation: Rotation::Deg90,
+                rotation: Rotation::Deg270,
                 mirrored: true,
             })
             .color_order(ColorOrder::Bgr)

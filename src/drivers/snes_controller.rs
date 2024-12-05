@@ -49,6 +49,9 @@ where
         }
         state
     }
+    // 1100000000000000
+    // 0010000000000000
+    // BBssudlraa
     pub fn read_gb(&mut self) -> u8 {
         let input = self.read();
         let mut state = 0;

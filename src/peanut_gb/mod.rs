@@ -1,12 +1,9 @@
-use std::borrow::BorrowMut;
 use std::ffi::{c_char, c_void, CStr};
 use std::mem::{self, ManuallyDrop};
 use std::ptr::{copy_nonoverlapping, null, null_mut};
-use std::sync::mpsc::Sender;
 
-use embedded_graphics::iterator::pixel;
 use svc::hal::gpio::{Gpio4, Gpio5};
-use svc::sys::{esp_timer_get_time, tm};
+use svc::sys::tm;
 
 use crate::drivers::{Display, DisplayMessage};
 use crate::*;
@@ -312,6 +309,10 @@ impl<'a> PeanutGb<'a> {
                 gb_error,
                 null_mut(),
             );
+            if CART_RAM.len() == 0 {
+                let size = gb_get_save_size(&mut *gbs as *mut GbS) as usize;
+                CART_RAM = Box::leak(vec![0; size].into_boxed_slice());
+            }
             gb_init_lcd(&mut *gbs as *mut GbS, lcd_draw_line);
             gbs.direct.frame_skip = 1;
         }
@@ -330,6 +331,9 @@ impl<'a> PeanutGb<'a> {
                 .expect("Error converting Rom Name")
         }
     }
+    pub fn get_cart_ram_size(&mut self) -> usize {
+        unsafe { gb_get_save_size(&mut *self.gbs) as usize }
+    }
     pub fn frame(&mut self, joypad: u8) -> () {
         unsafe {
             self.gbs.direct.joypad = joypad;
@@ -342,16 +346,16 @@ impl<'a> PeanutGb<'a> {
 }
 
 extern "C" fn gb_rom_read(_gbs: *mut GbS, address: u32) -> u8 {
-    ROM[address as usize]
+    unsafe { ROM[address as usize] }
 }
 
 extern "C" fn gb_cart_ram_read(gbs: *mut GbS, address: u32) -> u8 {
-    unsafe { RAM[address as usize] }
+    unsafe { CART_RAM[address as usize] }
 }
 
 extern "C" fn gb_cart_ram_write(gbs: *mut GbS, address: u32, value: u8) {
     unsafe {
-        RAM[address as usize] = value;
+        CART_RAM[address as usize] = value;
     }
 }
 
